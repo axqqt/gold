@@ -1,3 +1,4 @@
+import os
 import yfinance as yf
 import pandas as pd
 import numpy as np
@@ -9,10 +10,10 @@ import logging
 import schedule
 
 class GoldMSSTracker:
-    def __init__(self, symbol='XAUUSD=X', interval='15m', discord_webhook=None):
-        self.symbol = symbol
-        self.interval = interval
-        self.discord_webhook = discord_webhook
+    def __init__(self):
+        self.symbol = os.getenv('SYMBOL', 'XAUUSD=X')
+        self.interval = os.getenv('INTERVAL', '15m')
+        self.discord_webhook = os.getenv('DISCORD_WEBHOOK')
         self.setup_logging()
 
     def setup_logging(self):
@@ -38,11 +39,8 @@ class GoldMSSTracker:
         lows = data['Low'].values
         closes = data['Close'].values
 
-        # Detect Higher High/Lower Low shifts
         higher_high = highs[-1] > np.max(highs[:-1])
         lower_low = lows[-1] < np.min(lows[:-1])
-
-        # Trend change detection via moving averages
         ma_short = np.mean(closes[-5:])
         ma_long = np.mean(closes[-10:])
         trend_change = abs(ma_short - ma_long) / ma_long > 0.005
@@ -85,22 +83,15 @@ class GoldMSSTracker:
                     self.send_discord_notification(message)
 
     def run(self):
-        # Schedule daily reset at midnight New York time
-        schedule.every().day.at("00:00").do(self.reset)
-        
-        # Run analysis every 15 minutes
         schedule.every(15).minutes.do(self.analyze_and_notify)
 
         while True:
             schedule.run_pending()
             time.sleep(1)
 
-    def reset(self):
-        logging.info("Daily reset performed")
+def main():
+    tracker = GoldMSSTracker()
+    tracker.run()
 
 if __name__ == '__main__':
-    # Replace with your actual Discord webhook URL
-    DISCORD_WEBHOOK = "YOUR_DISCORD_WEBHOOK_URL"
-    
-    tracker = GoldMSSTracker(discord_webhook=DISCORD_WEBHOOK)
-    tracker.run()
+    main()
