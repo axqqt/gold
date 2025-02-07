@@ -1,0 +1,11 @@
+assets:
+  stocks:
+    - ^IXIC  # NASDAQ Index
+  commodities:
+    - GC=F  # Gold Futures (Spot Price)
+notification:
+  discord:
+    enabled: true
+  logging:
+    enabled: true
+    level: INFO
