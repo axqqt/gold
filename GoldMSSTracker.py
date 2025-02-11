@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from typing import Dict, List, Optional
 import concurrent.futures
 
+
 class MarketStructureTracker:
     def __init__(self, config_path: str):
         # Load environment variables
@@ -157,7 +158,7 @@ class MarketStructureTracker:
             data = self.fetch_data(symbol.strip())
             if data is not None:
                 mss_result = self.detect_market_structure_shift(data)
-                if mss_result and any([mss_result['higher_high'], mss_result['lower_low'], mss_result['trend_change']]):
+                if mss_result and mss_result['trend_change']:  # Only notify if trend_change is True
                     timestamp = datetime.now(pytz.timezone('America/New_York')).strftime('%Y-%m-%d %H:%M:%S %Z')
                     message = self._format_notification_message(timestamp, mss_result)
                     self.send_discord_notification(symbol, message)
@@ -166,13 +167,13 @@ class MarketStructureTracker:
     
     def _format_notification_message(self, timestamp: str, result: Dict) -> str:
         """Format notification message with consistent structure."""
+        trend_direction = "📈 Upward Trend" if result['ma_short'] > result['ma_long'] else "📉 Downward Trend"
         return f"""**⏰ Timestamp:** {timestamp}
 **💰 Current Price:** ${result['current_price']:.2f}
-**📈 Higher High:** {result['higher_high']}
-**📉 Lower Low:** {result['lower_low']}
-**🔄 Trend Change:** {result['trend_change']}
-**📊 Short MA:** {result['ma_short']:.2f}
-**📊 Long MA:** {result['ma_long']:.2f}"""
+**📊 Short MA (5-period):** {result['ma_short']:.2f}
+**📊 Long MA (10-period):** {result['ma_long']:.2f}
+**🔄 Trend Direction:** {trend_direction}
+**⚠️ Trend Change Detected:** ✅"""
     
     def analyze_and_notify(self):
         """Parallel processing of symbols for efficiency."""
@@ -189,8 +190,8 @@ class MarketStructureTracker:
         print("Starting Market Structure Tracker...")
         logging.info("Initializing Market Structure Tracker...")
         
-        # Calculate time until next market trading day's open
-        self._wait_until_market_open()
+        # Calculate time until next 15-minute interval from midnight New York time
+        self._wait_until_next_15_minute_interval()
         
         # Schedule tasks with error handling
         schedule.every(15).minutes.do(self._safe_analyze_and_notify)
@@ -203,16 +204,28 @@ class MarketStructureTracker:
                 logging.error(f"Unexpected error in main loop: {e}")
                 time.sleep(60)  # Wait before retrying
     
-    def _wait_until_market_open(self):
-        """Wait until market trading hours, considering weekends and holidays."""
+    def _wait_until_next_15_minute_interval(self):
+        """Wait until the next 15-minute interval from midnight New York time."""
         ny_timezone = pytz.timezone('America/New_York')
         
-        # Simplified market hours logic (adjustable)
         while True:
             now_ny = datetime.now(ny_timezone)
-            if now_ny.weekday() < 5 and 9 <= now_ny.hour < 16:  # Weekdays, 9 AM to 4 PM
-                break
-            time.sleep(60)  # Check every minute
+            
+            # Calculate the next 15-minute interval
+            next_run_minute = ((now_ny.minute // 15) + 1) * 15
+            next_run_time = now_ny.replace(minute=0, second=0, microsecond=0) + timedelta(minutes=next_run_minute)
+            
+            # If the calculated time is past midnight, reset to the next day
+            if next_run_time.day != now_ny.day:
+                next_run_time = next_run_time.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+            
+            # Sleep until the next 15-minute interval
+            sleep_duration = (next_run_time - now_ny).total_seconds()
+            if sleep_duration <= 0:
+                break  # Already at or past the next interval
+            
+            logging.info(f"Waiting until next 15-minute interval at {next_run_time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            time.sleep(sleep_duration)
     
     def _safe_analyze_and_notify(self):
         """Wrapper for analyze_and_notify with additional error handling."""
@@ -221,10 +234,12 @@ class MarketStructureTracker:
         except Exception as e:
             logging.error(f"Error in scheduled task: {e}")
 
+
 def main():
     config_path = "config.yaml"
     tracker = MarketStructureTracker(config_path)
     tracker.run()
+
 
 if __name__ == '__main__':
     main()
